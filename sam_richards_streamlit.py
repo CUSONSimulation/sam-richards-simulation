@@ -1,29 +1,20 @@
-# sam_richards_streamlit.py
+# sam_richards_streamlit.py (Streamlit Cloud Compatible)
 
 import openai
-import sounddevice as sd
-import numpy as np
-import queue
 import tempfile
 import os
-import time
-import wave
 from dotenv import load_dotenv
 import streamlit as st
 from datetime import datetime
 
-# Load environment variables
+# Load API key
 load_dotenv()
 openai.api_key = os.getenv("OPENAI_API_KEY")
 
 # Config
 VOICE = "echo"
-SAMPLE_RATE = 16000
-CHANNELS = 1
-DURATION = 5  # seconds per recording
-q = queue.Queue()
 
-# Character profile
+# Character Persona
 SAM_PROMPT = """
 You are Sam Richards, the Operations Manager of a County Corrections Facility. You’ve been in this role for 14 years. 
 You are skeptical, resistant to change, and strongly protective of your staff, routine, and facility operations.
@@ -39,37 +30,16 @@ Stay completely in character. Do not assist or make it easy. You only reluctantl
 You are not an AI. You are Sam Richards. Respond to the student nurse naturally, using realistic conversational language.
 """
 
-# Audio recording
-def record_audio():
-    def callback(indata, frames, time, status):
-        if status:
-            st.warning(f"⚠️ {status}")
-        q.put(indata.copy())
-
-    with sd.InputStream(samplerate=SAMPLE_RATE, channels=CHANNELS, callback=callback):
-        st.info("🎤 Speak now...")
-        audio = np.empty((0, CHANNELS), dtype=np.float32)
-        start_time = time.time()
-        while time.time() - start_time < DURATION:
-            audio = np.vstack((audio, q.get()))
-        return audio
-
-def save_audio_to_wav(audio_data):
-    temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".wav")
-    with wave.open(temp_file.name, 'wb') as wf:
-        wf.setnchannels(CHANNELS)
-        wf.setsampwidth(2)
-        wf.setframerate(SAMPLE_RATE)
-        wf.writeframes((audio_data * 32767).astype(np.int16).tobytes())
-    return temp_file.name
-
-# Whisper STT
-def transcribe_audio(file_path):
-    with open(file_path, "rb") as f:
+# Transcribe uploaded audio
+def transcribe_audio(file):
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as tmp:
+        tmp.write(file.read())
+        tmp_path = tmp.name
+    with open(tmp_path, "rb") as f:
         transcript = openai.audio.transcriptions.create(model="whisper-1", file=f)
     return transcript.text
 
-# GPT response
+# Get GPT-4 response
 def get_sam_response(messages):
     response = openai.chat.completions.create(
         model="gpt-4",
@@ -77,7 +47,7 @@ def get_sam_response(messages):
     )
     return response.choices[0].message.content
 
-# TTS playback
+# Generate TTS response
 def speak_text(text):
     response = openai.audio.speech.create(
         model="tts-1",
@@ -90,7 +60,8 @@ def speak_text(text):
 
 # Streamlit UI
 st.title("🧍 Sam Richards Corrections Simulation")
-st.write("Speak into your microphone and convince Sam Richards to support a flu vaccination program.")
+st.caption("🔁 Updated: Streamlit Cloud compatible (audio file upload only)")
+st.write("Upload a short `.wav` audio clip of your message to Sam Richards.")
 
 if 'messages' not in st.session_state:
     st.session_state.messages = [{"role": "system", "content": SAM_PROMPT}]
@@ -98,10 +69,10 @@ if 'messages' not in st.session_state:
 if 'transcript' not in st.session_state:
     st.session_state.transcript = []
 
-if st.button("Record Response"):
-    audio = record_audio()
-    wav_file = save_audio_to_wav(audio)
-    user_input = transcribe_audio(wav_file)
+uploaded_file = st.file_uploader("📤 Upload your .wav file", type=["wav"])
+
+if uploaded_file is not None:
+    user_input = transcribe_audio(uploaded_file)
     st.markdown(f"**You said:** {user_input}")
     st.session_state.transcript.append(f"Nurse: {user_input}")
 
@@ -115,7 +86,7 @@ if st.button("Record Response"):
     audio_file = open(audio_path, 'rb')
     st.audio(audio_file.read(), format='audio/mp3')
 
-# Downloadable transcript
+# Download transcript
 if st.session_state.transcript:
     full_transcript = "\n".join(st.session_state.transcript)
     timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
